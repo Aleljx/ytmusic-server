@@ -24,11 +24,14 @@ def index():
 @app.route("/info", methods=["POST"])
 def get_info():
     """Возвращает метаданные трека: название, исполнитель, обложка, длительность."""
-    data = request.get_json()
-    if not data or "url" not in data:
-        return jsonify({"error": "url is required"}), 400
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+    except Exception:
+        data = {}
 
-    url = data["url"]
+    url = data.get("url", "").strip()
+    if not url:
+        return jsonify({"error": "url is required"}), 400
 
     try:
         result = run_ytdlp(["--dump-json", "--no-playlist", url])
@@ -106,5 +109,5 @@ def download():
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))
+    port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
