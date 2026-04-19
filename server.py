@@ -58,33 +58,48 @@ def get_info():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/download", methods=["POST"])
+@app.route("/download", methods=["GET", "POST"])
 def download():
-    """Скачивает трек и возвращает прямую ссылку на MP3."""
-    data = request.get_json()
-    if not data or "url" not in data:
+    """Скачивает трек через yt-dlp и отдаёт MP3 напрямую."""
+    if request.method == "POST":
+        data = request.get_json()
+        url = data.get("url", "") if data else ""
+    else:
+        url = request.args.get("url", "")
+
+    if not url:
         return jsonify({"error": "url is required"}), 400
 
-    url = data["url"]
-
     try:
-        # Получаем прямую аудио-ссылку без скачивания
-        result = run_ytdlp([
-            "--get-url",
-            "-f", "bestaudio",
-            "--no-playlist",
-            url
-        ])
+        import tempfile, glob
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_template = os.path.join(tmpdir, "%(artist,uploader)s - %(title)s.%(ext)s")
+            result = run_ytdlp([
+                "-f", "ba", "-x",
+                "--audio-format", "mp3",
+                "--audio-quality", "0",
+                "--no-playlist",
+                "-o", output_template,
+                url
+            ])
 
-        if result.returncode != 0:
-            return jsonify({"error": "Не удалось получить ссылку", "details": result.stderr}), 400
+            if result.returncode != 0:
+                return jsonify({"error": "Ошибка скачивания", "details": result.stderr}), 400
 
-        download_url = result.stdout.strip().split("\n")[0]
+            files = glob.glob(os.path.join(tmpdir, "*.mp3"))
+            if not files:
+                return jsonify({"error": "Файл не найден"}), 400
 
-        if not download_url:
-            return jsonify({"error": "Пустая ссылка"}), 400
+            filepath = files[0]
+            filename = os.path.basename(filepath)
 
-        return jsonify({"download_url": download_url})
+            from flask import send_file
+            return send_file(
+                filepath,
+                mimetype="audio/mpeg",
+                as_attachment=True,
+                download_name=filename
+            )
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
