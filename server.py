@@ -75,12 +75,16 @@ def download():
 
     try:
         import tempfile, glob
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             output_template = os.path.join(tmpdir, "%(artist,uploader)s - %(title)s.%(ext)s")
             result = run_ytdlp([
                 "-f", "ba", "-x",
                 "--audio-format", "mp3",
                 "--audio-quality", "0",
+                "--embed-thumbnail",
+                "--embed-metadata",
+                "--convert-thumbnails", "jpg",
+                "--ppa", "ThumbnailsConvertor:-vf crop=ih:ih",
                 "--no-playlist",
                 "-o", output_template,
                 url
@@ -104,7 +108,13 @@ def download():
                 download_name=filename
             )
 
+
     except Exception as e:
+
+        import traceback
+
+        traceback.print_exc()
+
         return jsonify({"error": str(e)}), 500
 
 
