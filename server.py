@@ -1,15 +1,22 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 import subprocess
 import json
 import os
+import tempfile
+import glob
 
 app = Flask(__name__)
 
+COOKIES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies.txt")
+
 
 def run_ytdlp(args: list) -> subprocess.CompletedProcess:
-    """Запускает yt-dlp и возвращает результат."""
+    """Запускает yt-dlp с куками если они есть."""
+    base_args = ["yt-dlp", "--no-warnings"]
+    if os.path.exists(COOKIES_PATH):
+        base_args += ["--cookies", COOKIES_PATH]
     return subprocess.run(
-        ["yt-dlp"] + args,
+        base_args + args,
         capture_output=True,
         text=True,
         timeout=60
@@ -18,12 +25,12 @@ def run_ytdlp(args: list) -> subprocess.CompletedProcess:
 
 @app.route("/", methods=["GET"])
 def index():
-    return jsonify({"status": "ok", "service": "YT Music Downloader API"})
+    cookies_status = "✅ куки загружены" if os.path.exists(COOKIES_PATH) else "❌ куки не найдены"
+    return jsonify({"status": "ok", "service": "YT Music Downloader API", "cookies": cookies_status})
 
 
 @app.route("/info", methods=["POST"])
 def get_info():
-    """Возвращает метаданные трека: название, исполнитель, обложка, длительность."""
     try:
         data = request.get_json(force=True, silent=True) or {}
     except Exception:
@@ -40,7 +47,6 @@ def get_info():
 
         info = json.loads(result.stdout)
 
-        # Ищем квадратную обложку
         thumb_url = info.get("thumbnail", "")
         for t in reversed(info.get("thumbnails", [])):
             if t.get("width") and t.get("height") and t["width"] == t["height"]:
@@ -63,10 +69,9 @@ def get_info():
 
 @app.route("/download", methods=["GET", "POST"])
 def download():
-    """Скачивает трек через yt-dlp и отдаёт MP3 напрямую."""
     if request.method == "POST":
-        data = request.get_json()
-        url = data.get("url", "") if data else ""
+        data = request.get_json(force=True, silent=True) or {}
+        url = data.get("url", "")
     else:
         url = request.args.get("url", "")
 
@@ -74,7 +79,6 @@ def download():
         return jsonify({"error": "url is required"}), 400
 
     try:
-        import tempfile, glob
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             output_template = os.path.join(tmpdir, "%(artist,uploader)s - %(title)s.%(ext)s")
             result = run_ytdlp([
@@ -100,7 +104,6 @@ def download():
             filepath = files[0]
             filename = os.path.basename(filepath)
 
-            from flask import send_file
             return send_file(
                 filepath,
                 mimetype="audio/mpeg",
@@ -108,13 +111,9 @@ def download():
                 download_name=filename
             )
 
-
     except Exception as e:
-
         import traceback
-
         traceback.print_exc()
-
         return jsonify({"error": str(e)}), 500
 
 
