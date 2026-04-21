@@ -29,23 +29,32 @@ def index():
     return jsonify({"status": "ok", "service": "YT Music Downloader API", "cookies": cookies_status})
 
 
-@app.route("/info", methods=["POST"])
+# ... (начало кода без изменений)
+
+@app.route("/info", methods=["GET", "POST"])  # Добавили GET
 def get_info():
     try:
-        data = request.get_json(force=True, silent=True) or {}
-    except Exception:
-        data = {}
+        # Пытаемся взять URL из параметров ссылки (для GET) или из JSON (для POST)
+        if request.method == "POST":
+            data = request.get_json(force=True, silent=True) or {}
+            url = data.get("url", "").strip()
+        else:
+            url = request.args.get("url", "").strip()
 
-    url = data.get("url", "").strip()
-    if not url:
-        return jsonify({"error": "url is required"}), 400
+        if not url:
+            return jsonify({"error": "url is required"}), 400
 
-    try:
+        # ВАЖНО: Увеличим таймаут для Render, так как бесплатные сервера тормозят
         result = run_ytdlp(["--dump-json", "--no-playlist", url])
+
         if result.returncode != 0:
+            # Выводим ошибку в консоль сервера, чтобы видеть её в логах Render
+            print(f"YT-DLP Error: {result.stderr}")
             return jsonify({"error": "Не удалось получить данные", "details": result.stderr}), 400
 
         info = json.loads(result.stdout)
+
+        # ... (остальная логика обработки thumbnail и duration остается такой же)
 
         thumb_url = info.get("thumbnail", "")
         for t in reversed(info.get("thumbnails", [])):
@@ -54,17 +63,21 @@ def get_info():
                 break
 
         duration_sec = info.get("duration", 0)
-        duration_str = f"{int(duration_sec)//60}:{int(duration_sec)%60:02d}" if duration_sec else ""
+        duration_str = f"{int(duration_sec) // 60}:{int(duration_sec) % 60:02d}" if duration_sec else ""
 
         return jsonify({
-            "title":     info.get("title", "Неизвестно"),
-            "artist":    info.get("artist") or info.get("uploader") or "Неизвестно",
-            "duration":  duration_str,
+            "title": info.get("title", "Неизвестно"),
+            "artist": info.get("artist") or info.get("uploader") or "Неизвестно",
+            "duration": duration_str,
             "thumbnail": thumb_url,
         })
 
     except Exception as e:
+        print(f"SERVER ERROR: {str(e)}")  # Чтобы видеть ошибку в логах Render
         return jsonify({"error": str(e)}), 500
+
+
+# ... (остальной код)
 
 
 @app.route("/download", methods=["GET", "POST"])
